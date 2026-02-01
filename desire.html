@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>欲の持続評価モデル — 計算ツール</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f172a">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<style>
+  :root{--bg:#0f172a;--card:#0b1220;--accent:#7dd3fc;--muted:#94a3b8;--text:#e6eef8}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,"Hiragino Kaku Gothic ProN",Meiryo,Arial;background:linear-gradient(180deg,#071226 0%, #081426 100%);color:var(--text);padding:24px}
+  .container{max-width:900px;margin:0 auto}
+  h1{font-size:1.6rem;margin:0 0 8px}
+  p.lead{color:var(--muted);margin:0 0 18px}
+  .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border:1px solid rgba(255,255,255,0.04);padding:16px;border-radius:12px;box-shadow:0 6px 20px rgba(2,6,23,0.6);margin-bottom:18px}
+  label{display:block;font-size:0.9rem;color:var(--muted);margin-bottom:6px}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  input[type="number"], input[type="text"], select {width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:rgba(255,255,255,0.02);color:var(--text);font-size:0.95rem}
+  .small{font-size:0.85rem;color:var(--muted)}
+  .result-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .pill{background:rgba(255,255,255,0.02);padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.03)}
+  button{background:var(--accent);color:#042029;border:none;padding:10px 12px;border-radius:10px;cursor:pointer;font-weight:600}
+  button.ghost{background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--text)}
+  pre{background:rgba(0,0,0,0.2);padding:12px;border-radius:8px;overflow:auto;font-size:0.88rem}
+  table{width:100%;border-collapse:collapse;margin-top:10px}
+  th,td{padding:8px;border-bottom:1px solid rgba(255,255,255,0.03);text-align:left}
+  .note{font-size:0.85rem;color:var(--muted)}
+  .flex{display:flex;gap:8px;align-items:center}
+  .history-list{max-height:180px;overflow:auto;margin-top:8px}
+  @media (max-width:700px){.row{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>欲の持続評価モデル — 計算ツール</h1>
+  <p class="lead">式： D = I × T^a,  E' = D / (k × √C) 。<br>まず値を入れると下に分解計算と判定が表示されます。保存・履歴・CSV出力対応。</p>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label>I（Intensity）: 欲の強度（1〜100）</label>
+        <input id="I" type="number" min="0" max="100" step="0.1" value="40" />
+      </div>
+      <div>
+        <label>T（Time, 日）: 持続日数（1〜10000）</label>
+        <input id="T" type="number" min="1" max="10000" step="1" value="365" />
+      </div>
+    </div>
+
+    <div style="height:12px"></div>
+
+    <div class="row">
+      <div>
+        <label>C（Cost, 円）: 費用（円）</label>
+        <input id="C" type="number" min="0" step="1" value="10000" />
+      </div>
+      <div>
+        <label>k（スケール定数）: 手動入力または下でキャリブレーション</label>
+        <input id="k" type="number" min="0.0001" step="0.0001" value="1.4142" />
+      </div>
+    </div>
+
+    <div style="height:12px"></div>
+
+    <div class="row">
+      <div>
+        <label>時間指数 a（既定 0.5）: D = I × T^a</label>
+        <input id="a" type="number" step="0.01" min="0.1" max="1" value="0.5" />
+      </div>
+      <div>
+        <label>衝動キャリブレーション C₀（円）: 「衝動なら出して良い金額」</label>
+        <input id="C0" type="number" min="1" step="1" placeholder="例: 5000 (空なら無視)" />
+      </div>
+    </div>
+
+    <div style="height:12px"></div>
+
+    <div class="flex">
+      <button id="calcBtn">計算する</button>
+      <button id="calibrateBtn" class="ghost">C₀から k を計算（k = 100 / √C₀）</button>
+      <button id="saveBtn" class="ghost">この入力を履歴に保存</button>
+      <button id="exportCsv" class="ghost">CSVでエクスポート</button>
+    </div>
+
+    <div style="height:12px"></div>
+
+    <div class="row">
+      <div class="card" style="padding:12px">
+        <label class="small">結果（要約）</label>
+        <div class="result-row">
+          <div class="pill"><strong>D</strong> = <span id="Dout">—</span></div>
+          <div class="pill"><strong>E'</strong> = <span id="Eout">—</span></div>
+          <div class="pill"><strong>判定</strong> = <span id="judgement">—</span></div>
+        </div>
+        <div style="height:8px"></div>
+        <div class="note">判定ルール: E' ≥ 3（強く買い推奨） / 1 < E' < 3（条件付き） / 0.7 ≤ E' ≤ 1（保留） / E' < 0.7（費用過剰）</div>
+      </div>
+
+      <div class="card" style="padding:12px">
+        <label class="small">計算の分解（桁ごとに確認）</label>
+        <pre id="breakdown">—</pre>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="card">
+    <label class="small">履歴</label>
+    <div class="flex" style="align-items:flex-end">
+      <div style="flex:1">
+        <select id="historySelect" style="width:100%"><option value="">-- 履歴を選択 --</option></select>
+      </div>
+      <div><button id="loadHistory" class="ghost">読み込み</button></div>
+      <div><button id="clearHistory" class="ghost">クリア</button></div>
+    </div>
+    <div class="history-list" id="historyList"></div>
+  </div>
+
+  <div class="card">
+    <label class="small">メモ / 使い方メモ</label>
+    <p class="note">
+      - T は「実際にその欲が持続した日数」を入力してください（推奨：メモで記録）。<br>
+      - k は個人差があるため、C₀ でキャリブレーションするか自由に決めてください。<br>
+      - 本ツールは判断の補助であり、正解を与えるものではありません。
+    </p>
+  </div>
+
+</div>
+
+<script>
+/*--- ユーティリティ ---*/
+function toNumber(v){const n = Number(v); return Number.isFinite(n) ? n : NaN; }
+function round(v, dp = 4){ const m = Math.pow(10, dp); return Math.round(v * m) / m; }
+
+/*--- DOM ---*/
+const Iinput = document.getElementById('I');
+const Tinput = document.getElementById('T');
+const Cinput = document.getElementById('C');
+const kinput = document.getElementById('k');
+const ainput = document.getElementById('a');
+const C0input = document.getElementById('C0');
+const calcBtn = document.getElementById('calcBtn');
+const calibrateBtn = document.getElementById('calibrateBtn');
+const saveBtn = document.getElementById('saveBtn');
+const Dout = document.getElementById('Dout');
+const Eout = document.getElementById('Eout');
+const breakdown = document.getElementById('breakdown');
+const judgement = document.getElementById('judgement');
+const historySelect = document.getElementById('historySelect');
+const historyList = document.getElementById('historyList');
+const loadHistory = document.getElementById('loadHistory');
+const clearHistory = document.getElementById('clearHistory');
+const exportCsv = document.getElementById('exportCsv');
+
+const STORAGE_KEY = 'desire_model_history_v1';
+
+/*--- コア計算 ---*/
+function computeAll({I, T, C, k, a}) {
+  // 型チェック
+  if (!(I>0 && T>0 && C>0 && k>0 && a>0)) {
+    return {error:'すべての値は正の数である必要があります（Cは正の費用）。'};
+  }
+
+  // D = I * T^a
+  // 計算分解は段階的に行う（四則演算/累乗/平方根を明示）
+  const TpowA = Math.pow(T, a);
+  const D = I * TpowA;
+
+  // sqrtC
+  const sqrtC = Math.sqrt(C);
+  // E' = D / (k * sqrtC)
+  const denom = k * sqrtC;
+  const Eprime = D / denom;
+
+  // 返す
+  return {
+    D_raw: D,
+    D_display: round(D, 6),
+    TpowA_display: round(TpowA, 8),
+    sqrtC_display: round(sqrtC, 8),
+    denom_display: round(denom, 8),
+    Eprime_raw: Eprime,
+    Eprime_display: round(Eprime, 6)
+  };
+}
+
+function judgementFromE(E) {
+  if (!Number.isFinite(E)) return '計算不能';
+  if (E >= 3) return '強く買い推奨 (E\' ≥ 3)';
+  if (E > 1) return '条件付きで買って良い (1 < E\' < 3)';
+  if (E >= 0.7) return '保留（再評価推奨） (0.7 ≤ E\' ≤ 1)';
+  return '費用過剰（E\' < 0.7）';
+}
+
+/*--- UI 更新 ---*/
+function updateUIWithResult(params, res) {
+  if (res.error) {
+    Dout.textContent = '—';
+    Eout.textContent = '—';
+    breakdown.textContent = 'エラー: ' + res.error;
+    judgement.textContent = '—';
+    return;
+  }
+  Dout.textContent = res.D_display + '  (I × T^a, I=' + params.I + ', T^' + params.a + ' = ' + res.TpowA_display + ')';
+  Eout.textContent = res.Eprime_display + '  (D / (k × √C))';
+  judgement.textContent = judgementFromE(res.Eprime_raw);
+
+  // 分解
+  let s = '';
+  s += '入力値:\n';
+  s += '  I = ' + params.I + '\n';
+  s += '  T = ' + params.T + ' 日\n';
+  s += '  a = ' + params.a + '（時間指数）\n';
+  s += '  C = ' + params.C + ' 円\n';
+  s += '  k = ' + params.k + '\n\n';
+
+  s += '計算手順（逐次表示）:\n';
+  s += '  1) T^a = ' + params.T + '^' + params.a + ' = ' + res.TpowA_display + '\n';
+  s += '  2) D = I × T^a = ' + params.I + ' × ' + res.TpowA_display + ' = ' + res.D_display + '\n';
+  s += '  3) √C = √' + params.C + ' = ' + res.sqrtC_display + '\n';
+  s += '  4) 分母 = k × √C = ' + params.k + ' × ' + res.sqrtC_display + ' = ' + res.denom_display + '\n';
+  s += '  5) E\' = D / (k × √C) = ' + res.D_display + ' / ' + res.denom_display + ' = ' + res.Eprime_display + '\n\n';
+
+  s += '判定: ' + judgementFromE(res.Eprime_raw) + '\n\n';
+  s += 'メモ: D=100 は参考値です。k は個人による。C₀ でキャリブレーション可能（k = 100 / √C₀）。\n';
+
+  breakdown.textContent = s;
+}
+
+/*--- イベント ---*/
+function gatherInputs() {
+  const I = toNumber(Iinput.value);
+  const T = toNumber(Tinput.value);
+  const C = toNumber(Cinput.value);
+  const k = toNumber(kinput.value);
+  const a = toNumber(ainput.value);
+  return {I, T, C, k, a};
+}
+
+calcBtn.addEventListener('click', ()=> {
+  const params = gatherInputs();
+  const res = computeAll(params);
+  updateUIWithResult(params, res);
+});
+
+calibrateBtn.addEventListener('click', ()=> {
+  const C0 = toNumber(C0input.value);
+  if (!C0 || C0 <= 0) {
+    alert('C₀ に有効な金額（円）を入力してください。例: 5000');
+    return;
+  }
+  // k = 100 / sqrt(C0)
+  const k = 100 / Math.sqrt(C0);
+  kinput.value = round(k, 6);
+  alert('k をキャリブレーションしました。k = ' + round(k,6));
+});
+
+saveBtn.addEventListener('click', ()=> {
+  const params = gatherInputs();
+  if (!Number.isFinite(params.I) || !Number.isFinite(params.T) || !Number.isFinite(params.C) || !Number.isFinite(params.k) || !Number.isFinite(params.a)) {
+    alert('入力に不正があります。すべての値が数値であることを確認してください。');
+    return;
+  }
+  const res = computeAll(params);
+  const entry = {
+    id: 'e' + Date.now(),
+    ts: new Date().toISOString(),
+    params,
+    res
+  };
+  const arr = loadHistoryArray();
+  arr.unshift(entry); // 新しい順
+  while (arr.length > 100) arr.pop();
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(arr));
+  refreshHistoryUI();
+  alert('履歴に保存しました（最新項目）');
+});
+
+function loadHistoryArray() {
+  try {
+    const s = localStorage.getItem(STORAGE_KEY);
+    if (!s) return [];
+    const arr = JSON.parse(s);
+    if (!Array.isArray(arr)) return [];
+    return arr;
+  } catch (e) { return []; }
+}
+
+function refreshHistoryUI() {
+  const arr = loadHistoryArray();
+  historySelect.innerHTML = '<option value="">-- 履歴を選択 --</option>';
+  historyList.innerHTML = '';
+  arr.forEach((ent, idx) => {
+    const opt = document.createElement('option');
+    opt.value = ent.id;
+    opt.textContent = ent.ts + ' — I=' + ent.params.I + ', T=' + ent.params.T + ', C=' + ent.params.C;
+    historySelect.appendChild(opt);
+
+    const div = document.createElement('div');
+    div.style.padding = '8px';
+    div.style.borderBottom = '1px dashed rgba(255,255,255,0.02)';
+    div.innerHTML = '<strong>' + ent.ts + '</strong><div class="small">I=' + ent.params.I + ', T=' + ent.params.T + ', C=' + ent.params.C + ', k=' + ent.params.k + ', a=' + ent.params.a + '</div>';
+    historyList.appendChild(div);
+  });
+}
+
+loadHistory.addEventListener('click', ()=> {
+  const id = historySelect.value;
+  if (!id) { alert('履歴を選択してください'); return; }
+  const arr = loadHistoryArray();
+  const ent = arr.find(e => e.id === id);
+  if (!ent) { alert('選択した履歴が見つかりません'); return; }
+  // ロード
+  Iinput.value = ent.params.I;
+  Tinput.value = ent.params.T;
+  Cinput.value = ent.params.C;
+  kinput.value = ent.params.k;
+  ainput.value = ent.params.a;
+  // 表示
+  updateUIWithResult(ent.params, ent.res);
+});
+
+clearHistory.addEventListener('click', ()=> {
+  if (!confirm('履歴をすべて消しますか？')) return;
+  localStorage.removeItem(STORAGE_KEY);
+  refreshHistoryUI();
+});
+
+exportCsv.addEventListener('click', ()=> {
+  const arr = loadHistoryArray();
+  if (arr.length === 0) { alert('エクスポートする履歴がありません。'); return; }
+  const rows = [['ts','I','T','C','k','a','D','Eprime']];
+  arr.forEach(e => {
+    const r = e;
+    const line = [
+      r.ts,
+      r.params.I,
+      r.params.T,
+      r.params.C,
+      r.params.k,
+      r.params.a,
+      r.res ? r.res.D_display : '',
+      r.res ? r.res.Eprime_display : ''
+    ];
+    rows.push(line);
+  });
+  const csv = rows.map(r => r.map(c => '"' + String(c).replace(/"/g,'""') + '"').join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const fname = 'desire_model_history.csv';
+  a.download = fname;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+});
+
+/* 初期化 */
+refreshHistoryUI();
+calcBtn.click(); // 初回計算で表示
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js')
+    .then(() => console.log('Service Worker registered'))
+    .catch(err => console.error('SW registration failed:', err));
+}
+</script>
+</body>
+</html>

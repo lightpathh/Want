@@ -1,0 +1,21 @@
+{
+  "name": "欲の持続評価モデル",
+  "short_name": "DesireModel",
+  "description": "持続する欲こそ本望。I, T, C を入力して自分の欲を数値化。",
+  "start_url": "./desire.html",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
